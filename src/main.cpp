@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include "LacrosseReceiver.h"
 
-LacrosseReceiver receiver(5); // RF receiver connected to pin 2
+LacrosseReceiver receiver(5); // RF receiver connected to pin 5
 uint32_t msec;
 
 void setup() {

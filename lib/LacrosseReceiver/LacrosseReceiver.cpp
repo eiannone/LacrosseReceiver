@@ -61,6 +61,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
 
     if (duration < PW_LAST) return;
     // Possible synchronization signal detected - End of packet
+    receiving = false;
 
     // PRELIMINARY VALIDITY CHECK
     // Verifies if there are enough legitimate timings
