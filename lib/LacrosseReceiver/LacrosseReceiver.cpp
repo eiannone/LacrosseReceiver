@@ -43,7 +43,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
     lastTime = time;
 
     if (!receiving) {
-        // Ignore pulses, until we receive a short or long pulse
+        // Ignores pulses, until we receive a short or long pulse
         if (!isLongShort(duration)) return;
 
         // First pulse detected (short or long)
@@ -53,6 +53,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
     }
     // If we are here, we are receiving pulses
 
+    // Stores pulse duration in a circular buffer 'timingsBuf'
     timingsBuf[timingPos] = duration;
     if (++timingPos == TIMINGS_BUFFER_SIZE) {
         bufferFull = true;
@@ -60,7 +61,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
     }
 
     if (duration < PW_LAST) return;
-    // Possible synchronization signal detected - End of packet
+    // Possible synchronization signal detected (long duration >= PW_LAST) - End of packet
     receiving = false;
 
     // PRELIMINARY VALIDITY CHECK
@@ -109,6 +110,22 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
     if (++packetPos == PACKET_BUFFER_SIZE) packetPos = 0;
 }
 
+/**
+ * Enable receiving data
+ */
+void LacrosseReceiver::enableReceive()
+{
+    attachInterrupt(_interrupt, handleInterrupt, CHANGE);
+}
+
+/**
+ * Disable receiving data
+ */
+void LacrosseReceiver::disableReceive()
+{
+    detachInterrupt(_interrupt);
+}
+
 measure LacrosseReceiver::getNextMeasure()
 {
     if (firstPacketPos == lastPacketPos) // Return empty measure
@@ -129,21 +146,5 @@ measure LacrosseReceiver::getNextMeasure()
     measure m = _t2m->getMeasure(&pk);
 
     // If measure is invalid, tries the next one
-    return (m.type != UNKNOWN)?  m : getNextMeasure();
-}
-
-/**
- * Enable receiving data
- */
-void LacrosseReceiver::enableReceive()
-{
-    attachInterrupt(_interrupt, handleInterrupt, CHANGE);
-}
-
-/**
- * Disable receiving data
- */
-void LacrosseReceiver::disableReceive()
-{
-    detachInterrupt(_interrupt);
+    return (m.type != UNKNOWN)? m : getNextMeasure();
 }

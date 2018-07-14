@@ -65,6 +65,9 @@
     // These are used for unit testing in Desktop environment
     #include <cstdint>
     #include <cstdlib>
+    #include <stdint-gcc.h>
+    #include <cstddef>
+
     typedef uint8_t byte;
 #endif
 
@@ -115,26 +118,26 @@ private:
 
     static const uint8_t ONES_COUNT[10];
 
-    struct bits_pos { byte bits; int timings; };
+    struct bits_pos { byte bits; size_t timings; };
 
     uint32_t longShortTiming(uint32_t);
     bool isFixed(uint32_t);
-    byte getChecksum();
+    uint8_t getChecksum();
 
-    int getFixedTiming(size_t, bool ungreedy = false);
+    size_t getFixedTiming(size_t, bool ungreedy = false);
     bits_pos getBit(size_t, bool ungreedy = false);
-    bits_pos fetchBits(size_t, int, bool ungreedy = false, bool fuzzy = false);
+    bits_pos fetchBits(size_t, size_t, bool ungreedy = false, bool fuzzy = false);
     bool fetchHeader(bool fuzzy = false);
     bool fetchHeaderFuzzy();
     size_t fetchMeasure(size_t, bool ungreedy = false);
-    size_t fetchMeasure2(size_t, bool ungreedy = false);
+    size_t fetchMeasureRep(size_t timingPos, bool ungreedy = false);
     bool readForward();
 
-    int getFixedTimingBk(size_t, bool ungreedy = false);
+    size_t getFixedTimingBk(size_t, bool ungreedy = false);
     bits_pos getBitBk(size_t, bool ungreedy = false);
-    bits_pos fetchBitsBk(size_t, int, bool ungreedy = false, bool fuzzy = false);
+    bits_pos fetchBitsBk(size_t, size_t, bool ungreedy = false, bool fuzzy = false);
     size_t fetchMeasureBk(size_t, bool ungreedy = false);
-    size_t fetchMeasure2Bk(size_t timingPos, bool ungreedy = false);
+    size_t fetchMeasureRepBk(size_t timingPos, bool ungreedy = false);
     bool readBackward();
 
     /**

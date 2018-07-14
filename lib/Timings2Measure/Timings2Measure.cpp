@@ -13,43 +13,30 @@ uint32_t Timings2Measure::longShortTiming(uint32_t t)
     return 0;
 }
 
-bool Timings2Measure::isFixed(uint32_t timing)
+bool Timings2Measure::isFixed(uint32_t t)
 {
     // Last timing (plus some short timings added) is considered fixed
-    if (timing >= PW_LAST && timing <= (PW_LAST + 1000)) return true;
-    return timing > (PW_FIXED - (_fuzzy? PW_TOL_F : PW_TOL))
-        && timing < (PW_FIXED + (_fuzzy? PW_TOL_F : PW_TOL));
+    if (t >= PW_LAST && t <= (PW_LAST + 1000)) return true;
+    return t > (PW_FIXED - (_fuzzy? PW_TOL_F : PW_TOL))
+        && t < (PW_FIXED + (_fuzzy? PW_TOL_F : PW_TOL));
 }
 
-byte Timings2Measure::getChecksum()
-{
-    // Calculate checksum as sum of nibbles
-    uint8_t sum = 10 + // 10 = Header checksum (0000 + 1010)
-          ((_mType == TEMPERATURE)? 0x0 : 0xE) +
-          (_sensorId >> 3) +
-          ((_sensorId << 1) & 0x0F) + _parity +
-          ((_mUnits / 10) * 2) +
-          ((_mUnits % 10) * 2) +
-          _mDecimals;
-    return sum & 0x0F;
-}
-
-int Timings2Measure::getFixedTiming(size_t timingPos, bool ungreedy)
+size_t Timings2Measure::getFixedTiming(size_t timingPos, bool ungreedy)
 {
     uint32_t tSum = 0;
     for(size_t t = timingPos; t < _timings->size; t++) {
         tSum += _timings->getTiming(t);
         if (t < (_timings->size - 1) && tSum > PW_LONG) break;
         if (isFixed(tSum)) {
-            if (ungreedy) return t - timingPos;
+            if (ungreedy) return t - timingPos + 1;
             while(++t < _timings->size) {
                 tSum += _timings->getTiming(t);
-                if (!isFixed(tSum)) return t - timingPos - 1;
+                if (!isFixed(tSum)) return t - timingPos;
             }
-            return _timings->size - timingPos - 1;
+            return _timings->size - timingPos;
         }
     }
-    return -1;
+    return 0;
 }
 
 Timings2Measure::bits_pos Timings2Measure::getBit(size_t timingPos, bool ungreedy)
@@ -57,8 +44,8 @@ Timings2Measure::bits_pos Timings2Measure::getBit(size_t timingPos, bool ungreed
     if (timingPos >= _timings->size) return {0, 0};
     uint32_t tt = longShortTiming(_timings->getTiming(timingPos));
     if (tt != 0) {
-        int nTimings = getFixedTiming(timingPos + 1, ungreedy);
-        if (nTimings > -1) return {(byte)((tt == PW_LONG)? 0 : 1), nTimings + 2};
+        size_t nTimings = getFixedTiming(timingPos + 1, ungreedy);
+        if (nTimings > 0) return {(byte)((tt == PW_LONG)? 0 : 1), 1 + nTimings};
     }
     // Tries to look ahead, merging multiple timings
     uint32_t tSum = 0;
@@ -67,22 +54,22 @@ Timings2Measure::bits_pos Timings2Measure::getBit(size_t timingPos, bool ungreed
         tt = longShortTiming(tSum);
         if (tt != 0) {
             // Search for next long/short timing and verifies that the timing in between equals to fixed
-            int nTimings = getFixedTiming(t + 1, ungreedy);
-            if (nTimings == -1) return {0, 0};
-            size_t tNext = t + nTimings + 2;
+            size_t nTimings = getFixedTiming(t + 1, ungreedy);
+            if (nTimings == 0) return {0, 0};
+            size_t tNext = t + nTimings + 1;
             if (tNext == _timings->size || longShortTiming(_timings->getTiming(tNext)) > 0)
-                return {(byte)((tt == PW_LONG)? 0 : 1), (int)(tNext - timingPos)};
+                return {(byte)((tt == PW_LONG)? 0 : 1), tNext - timingPos};
         }
         if (tSum > PW_LONG) break;
     }
     return {0, 0};
 }
 
-Timings2Measure::bits_pos Timings2Measure::fetchBits(size_t timingPos, int nBits, bool ungreedy, bool fuzzy)
+Timings2Measure::bits_pos Timings2Measure::fetchBits(size_t timingPos, size_t nBits, bool ungreedy, bool fuzzy)
 {
     byte bits = 0;
-    int fetched = 0;
-    int t = 0;
+    size_t fetched = 0;
+    size_t t = 0;
     _fuzzy = fuzzy;
     while(fetched < nBits) {
         bits_pos bp = getBit(timingPos + t, ungreedy);
@@ -92,7 +79,7 @@ Timings2Measure::bits_pos Timings2Measure::fetchBits(size_t timingPos, int nBits
         fetched++;
         t += bp.timings;
     }
-    return (bits_pos){bits, t};
+    return {bits, t};
 }
 
 bool Timings2Measure::fetchHeader(bool fuzzy)
@@ -148,7 +135,7 @@ bool Timings2Measure::fetchHeaderFuzzy()
 {
     size_t t = 0;
     while (t < _timings->size - 54) {
-        for(int len = 0; len < 6; len++) {
+        for(size_t len = 0; len < 6; len++) {
             bits_pos bp = fetchBits(t, 8 - len);
             byte headerPart = 0x0A & (0xFF >> len);
             if (bp.bits != headerPart) bp = fetchBits(t, 8 - len, true);
@@ -169,8 +156,8 @@ size_t Timings2Measure::fetchMeasure(size_t timingPos, bool ungreedy)
     uint8_t ones = _parity;
     for (uint8_t digit = 0; digit < 3; digit++) {
         bits_pos bp = fetchBits(t, 4, ungreedy);
-        if (bp.timings == 0) return 0; // "Uable to decode a bit inside the measure"];
-        if (bp.bits > 9) return 0; // "Wrong measure digit";
+        // "Unable to decode a bit inside the measure" or "Wrong measure digit"
+        if (bp.timings == 0 || bp.bits > 9) return 0;
 
         if (digit == 0) _mUnits = bp.bits * 10;
         else if (digit == 1) _mUnits += bp.bits;
@@ -184,14 +171,14 @@ size_t Timings2Measure::fetchMeasure(size_t timingPos, bool ungreedy)
     return t - timingPos;
 }
 
-size_t Timings2Measure::fetchMeasure2(size_t timingPos, bool ungreedy)
+size_t Timings2Measure::fetchMeasureRep(size_t timingPos, bool ungreedy)
 {
     size_t t = timingPos;
     // Fetch measure digits
     for (uint8_t digit = 0; digit < 2; digit++) {
         bits_pos bp = fetchBits(t, 4, ungreedy);
-        if (bp.timings == 0) return 0; // "Uable to decode a bit inside repeated measure"];
-        if (bp.bits > 9) return 0; // "Wrong measure digit";
+        // "Unable to decode a bit inside the measure" or "Wrong measure digit"
+        if (bp.timings == 0 || bp.bits > 9) return 0;
 
         if (digit == 0) _m2Units = bp.bits * 10;
         else _m2Units += bp.bits;
@@ -199,6 +186,19 @@ size_t Timings2Measure::fetchMeasure2(size_t timingPos, bool ungreedy)
         t += bp.timings;
     }
     return t - timingPos;
+}
+
+uint8_t Timings2Measure::getChecksum()
+{
+    // Calculate checksum as sum of nibbles
+    uint8_t sum = 10 + // 10 = Header checksum (0000 + 1010)
+          ((_mType == TEMPERATURE)? 0x0 : 0xE) +
+          (_sensorId >> 3) +
+          ((_sensorId << 1) & 0x0F) + _parity +
+          ((_mUnits / 10) * 2) +
+          ((_mUnits % 10) * 2) +
+          _mDecimals;
+    return sum & 0x0F;
 }
 
 bool Timings2Measure::readForward()
@@ -255,9 +255,9 @@ bool Timings2Measure::readForward()
     if (_timings->size - t < 16) return _ignoreChecksum; // Ignores error
 
     // Fetch repeated measure
-    nTimings = fetchMeasure2(t);
+    nTimings = fetchMeasureRep(t);
     if (nTimings == 0) {
-        nTimings = fetchMeasure2(t, true);
+        nTimings = fetchMeasureRep(t, true);
         if (nTimings == 0) return _ignoreChecksum;
     }
     t += nTimings;
@@ -272,50 +272,50 @@ bool Timings2Measure::readForward()
     return bp.timings != 0 && bp.bits == getChecksum();
 }
 
-int Timings2Measure::getFixedTimingBk(size_t timingPos, bool ungreedy)
+size_t Timings2Measure::getFixedTimingBk(size_t timingPos, bool ungreedy)
 {
     uint32_t tSum = 0;
-    for(auto t = (int)timingPos; t >= 0; t--) {
-        tSum += _timings->getTiming((size_t)t);
-        if (t < (int)(_timings->size - 1) && tSum > PW_LONG) break;
+    for(auto t = timingPos; t >= 0; t--) {
+        tSum += _timings->getTiming(t);
+        if (t < (_timings->size - 1) && tSum > PW_LONG) break;
         if (isFixed(tSum)) {
-            if (ungreedy) return timingPos - t;
+            if (ungreedy) return timingPos - t + 1;
             while(--t >= 0) {
-                tSum += _timings->getTiming((size_t)t);
-                if (!isFixed(tSum)) return timingPos - t - 1;
+                tSum += _timings->getTiming(t);
+                if (!isFixed(tSum)) return timingPos - t;
             }
-            return timingPos - 1;
+            return timingPos + 1;
         }
     }
-    return -1;
+    return 0;
 }
 
 Timings2Measure::bits_pos Timings2Measure::getBitBk(size_t timingPos, bool ungreedy)
 {
-    int nTimings = getFixedTimingBk(timingPos, ungreedy);
-    if (timingPos - nTimings < 1) return {0, 0};
-    uint32_t tt = (nTimings == -1)? 0 : longShortTiming(_timings->getTiming(timingPos - nTimings - 1));
-    if (nTimings == -1 || tt == 0) return {0, 0};
+    size_t nTimings = getFixedTimingBk(timingPos, ungreedy);
+    if (nTimings > timingPos) return {0, 0};
+    uint32_t tt = (nTimings == 0)? 0 : longShortTiming(_timings->getTiming(timingPos - nTimings));
+    if (nTimings == 0 || tt == 0) return {0, 0};
 
-    return {(byte)((tt == PW_LONG)? 0 : 1), nTimings + 2};
+    return {(byte)((tt == PW_LONG)? 0 : 1), nTimings + 1};
 }
 
-Timings2Measure::bits_pos Timings2Measure::fetchBitsBk(size_t timingPos, int nBits, bool ungreedy, bool fuzzy)
+Timings2Measure::bits_pos Timings2Measure::fetchBitsBk(size_t timingPos, size_t nBits, bool ungreedy, bool fuzzy)
 {
     byte bits = 0;
-    int fetched = 0;
-    int t = 0;
+    size_t fetched = 0;
+    auto t = timingPos;
     _fuzzy = fuzzy;
     while(fetched < nBits) {
-        if ((int)timingPos + t < 0) return {0, 0};
-        bits_pos bp = getBitBk(timingPos + t, ungreedy);
+        bits_pos bp = getBitBk(t, ungreedy);
         if (bp.timings == 0)
             return _fuzzy? (bits_pos){0, 0} : fetchBitsBk(timingPos, nBits, ungreedy, true);
         if (bp.bits == 1) bits |= (1 << fetched);
         fetched++;
+        if (bp.timings > t && fetched < nBits) return {0, 0};
         t -= bp.timings;
     }
-    return {bits, -t};
+    return {bits, timingPos - t};
 }
 
 size_t Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
@@ -325,8 +325,8 @@ size_t Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
     uint8_t ones = 0;
     for (uint8_t digit = 3; digit > 0; digit--) {
         bits_pos bp = fetchBitsBk(t, 4, ungreedy);
-        if (bp.timings == 0) return 0; // "Unable to decode a bit inside the measure"
-        if (bp.bits > 9) return 0; // "Wrong measure digit"
+        // "Unable to decode a bit inside the measure" or "Wrong measure digit"
+        if (bp.timings == 0 || bp.bits > 9) return 0;
 
         if (digit == 3) _mDecimals = bp.bits;
         else if (digit == 2) _mUnits = bp.bits;
@@ -352,14 +352,14 @@ size_t Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
     return timingPos - t;
 }
 
-size_t Timings2Measure::fetchMeasure2Bk(size_t timingPos, bool ungreedy)
+size_t Timings2Measure::fetchMeasureRepBk(size_t timingPos, bool ungreedy)
 {
     size_t t = timingPos;
     // Fetch measure digits
     for (uint8_t digit = 0; digit < 2; digit++) {
         bits_pos bp = fetchBitsBk(t, 4, ungreedy);
-        if (bp.timings == 0) return 0; // "Unable to decode a bit inside the repeated measure"
-        if (bp.bits > 9) return 0; // "Wrong measure digit"
+        // "Unable to decode a bit inside the measure" or "Wrong measure digit"
+        if (bp.timings == 0 || bp.bits > 9) return 0;
 
         if (digit == 0) _m2Units = bp.bits;
         else _m2Units += bp.bits * 10;
@@ -374,7 +374,7 @@ bool Timings2Measure::readBackward()
     size_t t = _timings->size - 2;
     uint32_t tt = longShortTiming(_timings->getTiming(t));
     if (tt == 0) return false; // "Unable to decode last bit";
-    byte checksum = (tt == PW_LONG)? 0 : 1;
+    uint8_t checksum = (tt == PW_LONG)? 0 : 1;
 
     bits_pos bp = fetchBitsBk(t - 1, 3);
     if (bp.timings == 0) return false; // "Unable to decode a bit inside checksum"
@@ -382,9 +382,9 @@ bool Timings2Measure::readBackward()
     t -= (bp.timings + 1);
 
     // Fetch repeated measure
-    size_t nTimings = fetchMeasure2Bk(t);
+    size_t nTimings = fetchMeasureRepBk(t);
     if (nTimings == 0) {
-        nTimings = fetchMeasure2Bk(t, true);
+        nTimings = fetchMeasureRepBk(t, true);
         if (nTimings == 0) {
             _m2Units = 0xFF;
             return false;
