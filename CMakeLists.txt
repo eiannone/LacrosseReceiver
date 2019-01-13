@@ -7,4 +7,4 @@ include_directories(lib/Timings2Measure)
 set(SOURCE_FILES test/debug_Timings2Measure.cpp lib/Timings2Measure/Timings2Measure.cpp)
 add_executable(LacrosseReceiver ${SOURCE_FILES})  # Add executable target with source files listed in SOURCE_FILES variable
 
-file(COPY test/desktop/test_Timings2Measure.dat DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/)
+configure_file(test/desktop/test_Timings2Measure.dat ./ COPYONLY)
