@@ -198,14 +198,14 @@ uint8_t Timings2Measure::measureChecksum(uint8_t sensorId, measureType mType, in
     uint8_t ones = ONES_COUNT[decimals] + ONES_COUNT[(units / 10)] + ONES_COUNT[(units % 10)];
 
     // Calculate checksum as sum of nibbles
-    uint8_t sum = 10 + // 10 = Header checksum (0000 + 1010)
+    auto sum = static_cast<uint8_t>(10 + // 10 = Header checksum (0000 + 1010)
         ((mType == TEMPERATURE)? 0x0 : 0xE) +
         (sensorId >> 3) +
         ((sensorId << 1) & 0x0F) + (ones % 2) +
         ((units / 10) * 2) +
         ((units % 10) * 2) +
-        decimals;
-    return sum & 0x0F;
+        decimals);
+    return static_cast<uint8_t>(sum & 0x0F);
 }
 
 /*
