@@ -29,7 +29,7 @@ public:
     // Buffer containing the detected timings packets (each with a different size)
     static volatile uint32_t packetsBuf[PACKET_BUFFER_SIZE];
 
-    LacrosseReceiver(const int pin, const bool ignoreChecksum = true);
+    LacrosseReceiver(const int pin, const bool ignoreChecksum = false);
     void enableReceive();
     void disableReceive();
     measure getNextMeasure();

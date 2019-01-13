@@ -99,7 +99,7 @@ struct measure {
 
 class Timings2Measure {
 public:
-    Timings2Measure() : _ignoreChecksum(true) {};
+    Timings2Measure() : _ignoreChecksum(false) {};
     Timings2Measure(bool ignoreChecksum) : _ignoreChecksum(ignoreChecksum) {};
     measure getMeasure(timings_packet* pk);
     
