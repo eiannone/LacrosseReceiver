@@ -70,7 +70,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
     // Scans the timings backward and accept no more than 10 errors
     size_t collected = bufferFull? TIMINGS_BUFFER_SIZE : timingPos;
     size_t packetSize = 0;
-    int errors = 0;
+    int errors = -1; // Last timing is always considered an error because duration is different
     while(collected > 0 && errors < 10) {
         packetSize++;
         collected--;
@@ -107,6 +107,9 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
         packetsBuf[packetPos] = timingsBuf[timingPos];
         if (++timingPos == TIMINGS_BUFFER_SIZE) timingPos = 0;
     }
+    // Normalizes last timing duration (for Lacrosse sensors it can have an arbitrary duration)
+    if (packetsBuf[packetPos] > PW_LAST + 1000) packetsBuf[packetPos] = PW_LAST;
+
     if (++packetPos == PACKET_BUFFER_SIZE) packetPos = 0;
 }
 

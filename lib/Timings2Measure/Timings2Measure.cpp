@@ -84,6 +84,10 @@ Timings2Measure::bits_pos Timings2Measure::fetchBits(size_t timingPos, size_t nB
 
 bool Timings2Measure::fetchHeader(bool fuzzy)
 {
+    // There should be at least room for 2 (remaining) bit of header (4 timings), measure type (8 timings),
+    // sensor id (14 timings), parity (2 timings), measure (24 timings) -> total 52 timings
+    if (_timings->size < 52) return false;
+
     _fuzzy = fuzzy;
     bits_pos bp{};
 
@@ -91,9 +95,7 @@ bool Timings2Measure::fetchHeader(bool fuzzy)
     size_t t = 0;
     byte header = 0;
     bool found = false;
-    // There should be at least room for 2 bit of header (4 timings), measure type (8 timings),
-    // sensor id (14 timings), parity (2 timings), measure (24 timings) -> total 52 timings
-    while (t < _timings->size - 52) {
+    while (t < _timings->size - 40) {
         bp = getBit(t);
         t += (bp.timings == 0)? 1 : bp.timings;
         if (bp.timings == 0 || bp.bits != 0) continue;
@@ -112,7 +114,7 @@ bool Timings2Measure::fetchHeader(bool fuzzy)
     size_t hBits = 2;
     do {
         // "Reached last reasonable timing without finding header";
-        if (t > _timings->size - 48) return _fuzzy? false : fetchHeader(true);
+        if (t > _timings->size - 40) return _fuzzy? false : fetchHeader(true);
         bp = getBit(t);
         // "Cannot decode a bit inside header";
         if (bp.timings == 0) return _fuzzy? false : fetchHeader(true);
@@ -133,13 +135,14 @@ bool Timings2Measure::fetchHeader(bool fuzzy)
 
 bool Timings2Measure::fetchHeaderFuzzy()
 {
+    if (_timings->size < 54) return false;
     size_t t = 0;
     while (t < _timings->size - 54) {
         for(size_t len = 0; len < 6; len++) {
             bits_pos bp = fetchBits(t, 8 - len);
             byte headerPart = 0x0A & (0xFF >> len);
-            if (bp.bits != headerPart) bp = fetchBits(t, 8 - len, true);
-            if (bp.bits == headerPart) {
+            if (bp.timings == 0 || bp.bits != headerPart) bp = fetchBits(t, 8 - len, true);
+            if (bp.timings != 0 && bp.bits == headerPart) {
                 _tHeader = t + bp.timings;
                 return true;
             }
