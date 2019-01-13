@@ -464,13 +464,8 @@ measure Timings2Measure::getMeasure(timings_packet* pk)
     // If there are more than 12 bits missing, we cannot identify sensor address because
     // t start at the 13th bit.
     // So the minimum number of bits is 44 - 12 = 32, that is 64 timings
-    if (_timings->size < 64 ||
-        (!readForward() && !readBackward() &&
-            (!_ignoreChecksum || _measure.sensorAddr == 0 || _measure.units == 0 || _measure.type == UNKNOWN)))
+    if (_timings->size < 64 || (!readForward() && !readBackward()))
         return { pk->msec, 0, UNKNOWN, 0, 0 };
-
-        // I've found that less than 10% of measures with wrong checksum are effectively wrong.
-        // So it can be better to accept them and make a secondary double check later.
 
     _measure.msec = pk->msec;
     // For temperature decrease the value by 50 (beware of negative values!)
@@ -481,6 +476,5 @@ measure Timings2Measure::getMeasure(timings_packet* pk)
             _measure.decimals = 10 - _measure.decimals;
         }
     }
-
     return _measure;
 }
