@@ -264,8 +264,10 @@ bool Timings2Measure::readForward()
 
     if (_m2Units != _mUnits) return false; // Measures don't match!
 
+    if (_ignoreChecksum) return true;
+
     // Check if there are enough timings for checksum (4 bit)
-    if (_timings->size - t < 8) return _ignoreChecksum;
+    if (_timings->size - t < 8) return false;
 
     // Fetch checksum
     bp = fetchBits(t, 4);
@@ -429,7 +431,7 @@ bool Timings2Measure::readBackward()
     _tHeader = t - bp.timings + 1;
 
     // Check checksum
-    return checksum == getChecksum();
+    return _ignoreChecksum || (checksum == getChecksum());
 }
 
 measure Timings2Measure::getMeasure(timings_packet* pk)
