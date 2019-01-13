@@ -48,13 +48,6 @@ private:
             lastPacketPos;  // Head position of stored packets
 
     static void handleInterrupt();
-    inline static bool isLongShort(uint32_t timing) {
-        return (timing > (PW_SHORT - PW_TOL) && timing < (PW_SHORT + PW_TOL))
-          || (timing > (PW_LONG  - PW_TOL) && timing < (PW_LONG  + PW_TOL));
-    }
-    inline static bool isFixed(uint32_t timing) {
-        return timing > (PW_FIXED - PW_TOL) && timing < (PW_FIXED + PW_TOL);
-    }
 };
 
 #endif

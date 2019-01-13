@@ -102,6 +102,15 @@ public:
     Timings2Measure() : _ignoreChecksum(true) {};
     Timings2Measure(bool ignoreChecksum) : _ignoreChecksum(ignoreChecksum) {};
     measure getMeasure(timings_packet* pk);
+    
+    inline static bool isLongShort(uint32_t t) {
+        return (t > (PW_SHORT - PW_TOL) && t < (PW_SHORT + PW_TOL))
+            || (t > (PW_LONG  - PW_TOL) && t < (PW_LONG  + PW_TOL));
+    }
+    inline static bool isValidTiming(uint32_t t) {        
+        return (t > (PW_FIXED - PW_TOL) && t < (PW_FIXED + PW_TOL)) 
+		    || isLongShort(t); // Fixed or long/short
+    }
 
 private:
     timings_packet* _timings;

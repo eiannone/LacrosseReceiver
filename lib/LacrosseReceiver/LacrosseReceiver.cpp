@@ -44,7 +44,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
 
     if (!receiving) {
         // Ignores pulses, until we receive a short or long pulse
-        if (!isLongShort(duration)) return;
+        if (!Timings2Measure::isLongShort(duration)) return;
 
         // First pulse detected (short or long)
         receiving = true;
@@ -75,7 +75,7 @@ void RECEIVE_ATTR LacrosseReceiver::handleInterrupt()
         packetSize++;
         collected--;
         if (timingPos-- == 0) timingPos = TIMINGS_BUFFER_SIZE - 1;
-        if (!isFixed(timingsBuf[timingPos]) && !isLongShort(timingsBuf[timingPos])) errors++;
+        if (!Timings2Measure::isValidTiming(timingsBuf[timingPos])) errors++;
     }
     if (packetSize < 32) return; // Excludes packets with less than 16 bits
 
