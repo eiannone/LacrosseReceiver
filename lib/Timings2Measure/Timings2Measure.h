@@ -114,39 +114,36 @@ public:
 
 private:
     timings_packet* _timings;
+    measure _measure;
     bool _ignoreChecksum;
     bool _fuzzy; // true if pulse detection needs to be in "fuzzy" mode
 
     size_t _tHeader;
-    measureType _mType;
-    uint8_t _sensorId;
-    uint8_t _parity;
-    uint8_t _mUnits;
-    uint8_t _mDecimals;
-    uint8_t _m2Units;
 
+    // Number of ones in a digit (decimal 0 - 9)
     static const uint8_t ONES_COUNT[10];
 
     struct bits_pos { byte bits; size_t timings; };
+    struct measure_pos { uint8_t units; uint8_t decimals; size_t timings; };
 
     uint32_t longShortTiming(uint32_t);
     bool isFixed(uint32_t);
-    uint8_t getChecksum();
 
     size_t getFixedTiming(size_t, bool ungreedy = false);
     bits_pos getBit(size_t, bool ungreedy = false);
     bits_pos fetchBits(size_t, size_t, bool ungreedy = false, bool fuzzy = false);
     bool fetchHeader(bool fuzzy = false);
     bool fetchHeaderFuzzy();
-    size_t fetchMeasure(size_t, bool ungreedy = false);
-    size_t fetchMeasureRep(size_t timingPos, bool ungreedy = false);
+    measure_pos fetchMeasure(size_t timingPos, uint8_t parity, bool ungreedy = false);
+    measure_pos fetchMeasureRep(size_t timingPos, bool ungreedy = false);
+    uint8_t measureChecksum(uint8_t sensorId, measureType mType, int8_t units, uint8_t decimals);
     bool readForward();
 
     size_t getFixedTimingBk(size_t, bool ungreedy = false);
     bits_pos getBitBk(size_t, bool ungreedy = false);
     bits_pos fetchBitsBk(size_t, size_t, bool ungreedy = false, bool fuzzy = false);
-    size_t fetchMeasureBk(size_t, bool ungreedy = false);
-    size_t fetchMeasureRepBk(size_t timingPos, bool ungreedy = false);
+    measure_pos fetchMeasureBk(size_t, bool ungreedy = false);
+    measure_pos fetchMeasureRepBk(size_t timingPos, bool ungreedy = false);
     bool readBackward();
 
     /**

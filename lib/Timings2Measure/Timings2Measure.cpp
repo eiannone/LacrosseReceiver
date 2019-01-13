@@ -152,60 +152,81 @@ bool Timings2Measure::fetchHeaderFuzzy()
     return false; //"Unable to detect header";
 }
 
-size_t Timings2Measure::fetchMeasure(size_t timingPos, bool ungreedy)
+Timings2Measure::measure_pos Timings2Measure::fetchMeasure(size_t timingPos, uint8_t parity, bool ungreedy)
 {
+    measure_pos m = {0};
     size_t t = timingPos;
     // Fetch measure digits
-    uint8_t ones = _parity;
     for (uint8_t digit = 0; digit < 3; digit++) {
         bits_pos bp = fetchBits(t, 4, ungreedy);
         // "Unable to decode a bit inside the measure" or "Wrong measure digit"
-        if (bp.timings == 0 || bp.bits > 9) return 0;
+        if (bp.timings == 0 || bp.bits > 9) return m;
 
-        if (digit == 0) _mUnits = bp.bits * 10;
-        else if (digit == 1) _mUnits += bp.bits;
-        else _mDecimals = bp.bits;
+        if (digit == 0) m.units = bp.bits * 10;
+        else if (digit == 1) m.units += bp.bits;
+        else m.decimals = bp.bits;
 
         t += bp.timings;
-        ones += ONES_COUNT[bp.bits];
+        parity += ONES_COUNT[bp.bits];
     }
     // Check parity
-    if (ones % 2 == 1) return 0; // "Parity mismatch"
-    return t - timingPos;
+    if (parity % 2 == 0) m.timings = t - timingPos;
+    return m;
 }
 
-size_t Timings2Measure::fetchMeasureRep(size_t timingPos, bool ungreedy)
+Timings2Measure::measure_pos Timings2Measure::fetchMeasureRep(size_t timingPos, bool ungreedy)
 {
+    measure_pos m = {0};
     size_t t = timingPos;
     // Fetch measure digits
     for (uint8_t digit = 0; digit < 2; digit++) {
         bits_pos bp = fetchBits(t, 4, ungreedy);
         // "Unable to decode a bit inside the measure" or "Wrong measure digit"
-        if (bp.timings == 0 || bp.bits > 9) return 0;
+        if (bp.timings == 0 || bp.bits > 9) return m;
 
-        if (digit == 0) _m2Units = bp.bits * 10;
-        else _m2Units += bp.bits;
+        if (digit == 0) m.units = bp.bits * 10;
+        else m.units += bp.bits;
 
         t += bp.timings;
     }
-    return t - timingPos;
+    m.timings = t - timingPos;
+    return m;
 }
 
-uint8_t Timings2Measure::getChecksum()
+uint8_t Timings2Measure::measureChecksum(uint8_t sensorId, measureType mType, int8_t units, uint8_t decimals)
 {
+    uint8_t ones = ONES_COUNT[decimals] + ONES_COUNT[(units / 10)] + ONES_COUNT[(units % 10)];
+
     // Calculate checksum as sum of nibbles
     uint8_t sum = 10 + // 10 = Header checksum (0000 + 1010)
-          ((_mType == TEMPERATURE)? 0x0 : 0xE) +
-          (_sensorId >> 3) +
-          ((_sensorId << 1) & 0x0F) + _parity +
-          ((_mUnits / 10) * 2) +
-          ((_mUnits % 10) * 2) +
-          _mDecimals;
+        ((mType == TEMPERATURE)? 0x0 : 0xE) +
+        (sensorId >> 3) +
+        ((sensorId << 1) & 0x0F) + (ones % 2) +
+        ((units / 10) * 2) +
+        ((units % 10) * 2) +
+        decimals;
     return sum & 0x0F;
 }
 
+/*
+ MEASURE STRUCTURE (44 bit)
+
+ 0-7:   8 bits header 00001010
+ 8-11:  4 bits measure type: 0000 = temp, 1110 = humidity
+ 12-18: 7 bits sensor id
+ 19:    1 bits parity. Makes even the number of bits "1" from 19 to 31
+ 20-23: 4 bits digit for tens
+ 24-27: 4 bits digit for ones
+ 28-31: 4 bits digit for decimals
+ 32-35: 4 bits digit for tens again
+ 36-39: 4 bits digit for ones again
+ 40-43: 4 bits CRC (sum of nibbles from bit 0 to 39)
+
+*/
 bool Timings2Measure::readForward()
 {
+    _measure = {0,0,UNKNOWN,0,0};
+
     if (!fetchHeader() && !fetchHeaderFuzzy()) return false; // Unable to decode header
 
     // There should be at least 24 more bits (48 timings)
@@ -220,9 +241,9 @@ bool Timings2Measure::readForward()
     if (bp.timings == 0 || (bp.bits != 0x0 && bp.bits != 0xE)) // Measure type should be 0000 or 1110
         bp = fetchBits(_tHeader, 4, true);
 
-    if (bp.timings == 0) return false ;// "Cannot decode a bit inside measure type";
-    if (bp.bits == 0x0) _mType = TEMPERATURE;
-    else if (bp.bits == 0xE) _mType = HUMIDITY;
+    if (bp.timings == 0) return false; // "Cannot decode a bit inside measure type";
+    if (bp.bits == 0x0) _measure.type = TEMPERATURE;
+    else if (bp.bits == 0xE) _measure.type = HUMIDITY;
     else return false; //"Wrong measure type";
 
     size_t t = _tHeader + bp.timings;
@@ -230,7 +251,7 @@ bool Timings2Measure::readForward()
     // Fetch sensor id
     bp = fetchBits(t, 7);
     if (bp.timings == 0) return false; // "Cannot decode a bit inside sensor addr";
-    auto sensorId = (uint8_t)bp.bits;
+    _measure.sensorAddr = (uint8_t)bp.bits;
     t += bp.timings;
 
     // Fetch parity
@@ -241,31 +262,30 @@ bool Timings2Measure::readForward()
         bp = getBit(t);
         if (bp.timings == 0) return false; // "Cannot decode parity bit";
     }
-    _parity = bp.bits;
+    uint8_t parity = bp.bits;
     t += bp.timings;
 
-    size_t nTimings = fetchMeasure(t);
-    if (nTimings == 0) {
-        nTimings = fetchMeasure(t, true);
-        if (nTimings == 0) return false;
+    measure_pos mp = fetchMeasure(t, parity);
+    if (mp.timings == 0) {
+        mp = fetchMeasure(t, parity, true);
+        if (mp.timings == 0) return false;
     }
-    t += nTimings;
-
-    // Assumes also sensor id was read correctly
-    _sensorId = sensorId;
+    _measure.units = mp.units;
+    _measure.decimals = mp.decimals;
+    t += mp.timings;
 
     // Check if there are enough timings for repeated measure (8 bit)
     if (_timings->size - t < 16) return _ignoreChecksum; // Ignores error
 
     // Fetch repeated measure
-    nTimings = fetchMeasureRep(t);
-    if (nTimings == 0) {
-        nTimings = fetchMeasureRep(t, true);
-        if (nTimings == 0) return _ignoreChecksum;
+    measure_pos mp2 = fetchMeasureRep(t);
+    if (mp2.timings == 0) {
+        mp2 = fetchMeasureRep(t, true);
+        if (mp2.timings == 0) return _ignoreChecksum;
     }
-    t += nTimings;
+    t += mp2.timings;
 
-    if (_m2Units != _mUnits) return false; // Measures don't match!
+    if (mp2.units != mp.units) return false; // Measures don't match!
 
     if (_ignoreChecksum) return true;
 
@@ -274,7 +294,7 @@ bool Timings2Measure::readForward()
 
     // Fetch checksum
     bp = fetchBits(t, 4);
-    return bp.timings != 0 && bp.bits == getChecksum();
+    return bp.timings != 0 && bp.bits == measureChecksum(_measure.sensorAddr, _measure.type, mp.units, mp.decimals);
 }
 
 size_t Timings2Measure::getFixedTimingBk(size_t timingPos, bool ungreedy)
@@ -323,19 +343,20 @@ Timings2Measure::bits_pos Timings2Measure::fetchBitsBk(size_t timingPos, size_t 
     return {bits, timingPos - t};
 }
 
-size_t Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
+Timings2Measure::measure_pos Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
 {
+    measure_pos m = {0};
     size_t t = timingPos;
     // Fetch measure digits
     uint8_t ones = 0;
     for (uint8_t digit = 3; digit > 0; digit--) {
         bits_pos bp = fetchBitsBk(t, 4, ungreedy);
         // "Unable to decode a bit inside the measure" or "Wrong measure digit"
-        if (bp.timings == 0 || bp.bits > 9) return 0;
+        if (bp.timings == 0 || bp.bits > 9) return m;
 
-        if (digit == 3) _mDecimals = bp.bits;
-        else if (digit == 2) _mUnits = bp.bits;
-        else _mUnits += bp.bits * 10;
+        if (digit == 3) m.decimals = bp.bits;
+        else if (digit == 2) m.units = bp.bits;
+        else m.units += bp.bits * 10;
 
         t -= bp.timings;
         ones += ONES_COUNT[bp.bits];
@@ -347,35 +368,37 @@ size_t Timings2Measure::fetchMeasureBk(size_t timingPos, bool ungreedy)
     if (bp.timings == 0) {
         _fuzzy = true;
         bp = getBitBk(t);
-        if (bp.timings == 0) return 0; // Unable to decode parity bit
+        if (bp.timings == 0) return m; // Unable to decode parity bit
     }
     t -= bp.timings;
-    _parity = bp.bits;
-    ones += _parity;
-    if (ones % 2 == 1) return 0; // Parity mismatch
-
-    return timingPos - t;
+    ones += bp.bits;
+    if (ones % 2 == 0) m.timings = timingPos - t;
+    return m;
 }
 
-size_t Timings2Measure::fetchMeasureRepBk(size_t timingPos, bool ungreedy)
+Timings2Measure::measure_pos Timings2Measure::fetchMeasureRepBk(size_t timingPos, bool ungreedy)
 {
+    measure_pos m = {0};
     size_t t = timingPos;
     // Fetch measure digits
     for (uint8_t digit = 0; digit < 2; digit++) {
         bits_pos bp = fetchBitsBk(t, 4, ungreedy);
         // "Unable to decode a bit inside the measure" or "Wrong measure digit"
-        if (bp.timings == 0 || bp.bits > 9) return 0;
+        if (bp.timings == 0 || bp.bits > 9) return m;
 
-        if (digit == 0) _m2Units = bp.bits;
-        else _m2Units += bp.bits * 10;
+        if (digit == 0) m.units = bp.bits;
+        else m.units += bp.bits * 10;
 
         t -= bp.timings;
     }
-    return timingPos - t;
+    m.timings = timingPos - t;
+    return m;
 }
 
 bool Timings2Measure::readBackward()
 {
+    _measure = {0,0,UNKNOWN,0,0};
+
     size_t t = _timings->size - 2;
     uint32_t tt = longShortTiming(_timings->getTiming(t));
     if (tt == 0) return false; // "Unable to decode last bit";
@@ -387,28 +410,24 @@ bool Timings2Measure::readBackward()
     t -= (bp.timings + 1);
 
     // Fetch repeated measure
-    size_t nTimings = fetchMeasureRepBk(t);
-    if (nTimings == 0) {
-        nTimings = fetchMeasureRepBk(t, true);
-        if (nTimings == 0) {
-            _m2Units = 0xFF;
-            return false;
-        }
+    measure_pos mp2 = fetchMeasureRepBk(t);
+    if (mp2.timings == 0) {
+        mp2 = fetchMeasureRepBk(t, true);
+        if (mp2.timings == 0) return false;
     }
-    t -= nTimings;
+    t -= mp2.timings;
 
     // Fetch measure and parity
-    nTimings = fetchMeasureBk(t);
-    if (nTimings == 0) {
-        nTimings = fetchMeasureBk(t, true);
-        if (nTimings == 0) {
-            _mUnits = 0xFF;
-            return false;
-        }
+    measure_pos mp = fetchMeasureBk(t);
+    if (mp.timings == 0) {
+        mp = fetchMeasureBk(t, true);
+        if (mp.timings == 0) return false;
     }
-    t -= nTimings;
+    t -= mp.timings;
+	_measure.units = mp.units;
+    _measure.decimals = mp.decimals;
 
-    if (_m2Units != _mUnits) return false; // Measures don't match!
+    if (mp.units != mp2.units) return false; // Measures don't match!
 
     // Check if there are enough timings for sensor id (7 bit) and measure type (4 bit)
     if (t < 22) return false; // "Not enough timings to decode sensor address and measure type";
@@ -416,7 +435,7 @@ bool Timings2Measure::readBackward()
     // Fetch sensor id
     bp = fetchBitsBk(t, 7);
     if (bp.timings == 0) return false; // "Cannot decode a bit inside sensor addr";
-    _sensorId = (uint8_t) bp.bits;
+    _measure.sensorAddr = (uint8_t) bp.bits;
     t -= bp.timings;
 
 //    // Check if there are enough timings for measure type (4 bit)
@@ -428,49 +447,40 @@ bool Timings2Measure::readBackward()
         bp = fetchBitsBk(t, 4, true);
 
     if (bp.timings == 0) return false ;// "Cannot decode a bit inside measure type";
-    if (bp.bits == 0x0) _mType = TEMPERATURE;
-    else if (bp.bits == 0xE) _mType = HUMIDITY;
+    if (bp.bits == 0x0) _measure.type = TEMPERATURE;
+    else if (bp.bits == 0xE) _measure.type = HUMIDITY;
     else return false; //"Wrong measure type";
     _tHeader = t - bp.timings + 1;
 
     // Check checksum
-    return _ignoreChecksum || (checksum == getChecksum());
+    return _ignoreChecksum || (checksum == measureChecksum(_measure.sensorAddr, _measure.type, mp.units, mp.decimals));
 }
 
 measure Timings2Measure::getMeasure(timings_packet* pk)
 {
-    _mType = UNKNOWN;
-    _sensorId = 0xFF;
-    _mUnits = 0xFF;
-    _m2Units = 0xFF;
-
     _timings = pk;
-    measure m = { pk->msec, 0, UNKNOWN, 0, 0 };
 
     // Excludes packets with more than 12 initial bits missing (header and sensor type)
     // If there are more than 12 bits missing, we cannot identify sensor address because
     // t start at the 13th bit.
     // So the minimum number of bits is 44 - 12 = 32, that is 64 timings
-    if (_timings->size < 64) return m;
+    if (_timings->size < 64 ||
+        (!readForward() && !readBackward() &&
+            (!_ignoreChecksum || _measure.sensorAddr == 0 || _measure.units == 0 || _measure.type == UNKNOWN)))
+        return { pk->msec, 0, UNKNOWN, 0, 0 };
 
-    if (readForward() || readBackward() ||
-        (_ignoreChecksum && _sensorId != 0xFF && _mUnits != 0xFF && _mType != UNKNOWN)) {
-        // I've found that less than 10% of measures with wrong checksum are
-        // effectively wrong. So it can be better to accept them and make a
-        // secondary double check after.
-        m.sensorAddr = _sensorId;
-        m.type = _mType;
-        m.units = _mUnits;
-        m.decimals = _mDecimals;
+        // I've found that less than 10% of measures with wrong checksum are effectively wrong.
+        // So it can be better to accept them and make a secondary double check later.
 
-        // For temperature decrease the value by 50 (beware of negative values!)
-        if (_mType == TEMPERATURE) {
-            m.units -= 50;
-            if (m.units < 0 && m.decimals > 0) {
-                m.units++;
-                m.decimals = 10 - m.decimals;
-            }
+    _measure.msec = pk->msec;
+    // For temperature decrease the value by 50 (beware of negative values!)
+    if (_measure.type == TEMPERATURE) {
+        _measure.units -= 50;
+        if (_measure.units < 0 && _measure.decimals > 0) {
+            _measure.units++;
+            _measure.decimals = 10 - _measure.decimals;
         }
     }
-    return m;
+
+    return _measure;
 }
