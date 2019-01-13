@@ -20,6 +20,7 @@ void loop() {
             Serial.print("Sensor #");
             Serial.print(m.sensorAddr);
             Serial.print(": ");
+            if (m.sign < 0) Serial.print("-");
             Serial.print(m.units);
             Serial.print(".");
             Serial.print(m.decimals);

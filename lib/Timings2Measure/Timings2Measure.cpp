@@ -225,7 +225,7 @@ uint8_t Timings2Measure::measureChecksum(uint8_t sensorId, measureType mType, in
 */
 bool Timings2Measure::readForward()
 {
-    _measure = {0,0,UNKNOWN,0,0};
+    _measure = {0,0,UNKNOWN,0,0,1};
 
     if (!fetchHeader() && !fetchHeaderFuzzy()) return false; // Unable to decode header
 
@@ -397,7 +397,7 @@ Timings2Measure::measure_pos Timings2Measure::fetchMeasureRepBk(size_t timingPos
 
 bool Timings2Measure::readBackward()
 {
-    _measure = {0,0,UNKNOWN,0,0};
+    _measure = {0,0,UNKNOWN,0,0,1};
 
     size_t t = _timings->size - 2;
     uint32_t tt = longShortTiming(_timings->getTiming(t));
@@ -465,15 +465,19 @@ measure Timings2Measure::getMeasure(timings_packet* pk)
     // t start at the 13th bit.
     // So the minimum number of bits is 44 - 12 = 32, that is 64 timings
     if (_timings->size < 64 || (!readForward() && !readBackward()))
-        return { pk->msec, 0, UNKNOWN, 0, 0 };
+        return { pk->msec, 0, UNKNOWN, 0, 0, 1 };
 
     _measure.msec = pk->msec;
     // For temperature decrease the value by 50 (beware of negative values!)
     if (_measure.type == TEMPERATURE) {
-        _measure.units -= 50;
-        if (_measure.units < 0 && _measure.decimals > 0) {
-            _measure.units++;
-            _measure.decimals = 10 - _measure.decimals;
+        if (_measure.units >= 50) _measure.units -= 50;
+        else { // Negative values
+            _measure.sign = -1;
+            _measure.units = static_cast<uint8_t>(50 - _measure.units);
+            if (_measure.decimals > 0) {
+                _measure.units--;
+                _measure.decimals = static_cast<uint8_t>(10 - _measure.decimals);
+            }
         }
     }
     return _measure;

@@ -93,8 +93,9 @@ struct measure {
     uint32_t msec;
     uint8_t sensorAddr;
     measureType type;
-    int8_t units;
+    uint8_t units;
     uint8_t decimals;
+    int8_t sign;
 };
 
 class Timings2Measure {
